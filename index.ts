@@ -2,7 +2,7 @@ import moment from "moment";
 import * as fs from "fs";
 import { parse } from 'csv-parse';
 import log4js from "log4js";
-import {stringifier} from "csv";
+import * as readline from "readline";
 
 const logger = log4js.getLogger("index.ts");
 log4js.configure({
@@ -13,6 +13,8 @@ log4js.configure({
         default: { appenders: ['file'], level: 'debug'}
     }
 });
+
+let readlineSync = require('readline-sync');
 
 class Account {
     readonly personName : string;
@@ -62,53 +64,48 @@ class Payment {
 let payments : Payment[] = [];
 let accounts : Map<string, Account> = new Map<string, Account>;
 
+function processQuery() : void {
+    let currentCommand : string = readlineSync.question("New command? ");
+    if (currentCommand === "List All") {
+        accounts.forEach(function(account : Account) : void {
+            console.log(account);
+        });
+    } else {
+        if (currentCommand.split(" ")[0] !== "List") {
+            if (currentCommand.split(" ").slice(0, 2).join(" ") === "Import File") {
+                let filePath = currentCommand.split(" ")[2];
+                if (filePath.endsWith(".json")) {
+                    parseJSON(filePath);
+                } else if (filePath.endsWith(".csv")) {
+                    console.log(filePath);
+                    parseCSV(filePath);
+                } else {
+                    throw new Error("Invalid file format.");
+                }
+            } else {
+                throw new Error("Invalid command!");
+            }
+        } else {
+            let accountName : string = currentCommand.split(" ").slice(1).join(" ");
+            if (!accounts.has(accountName)) {
+                throw new Error("Invalid account name! Please introduce another command.\n");
+            } else {
+                payments.filter(function(payment : Payment) : boolean {
+                    return payment.getGiverAcc()?.getPersonName() === accountName || payment.getReceiverAcc()?.getPersonName() === accountName;
+                }).forEach((function(payment : Payment) : void {
+                    console.log(payment);
+                }));
+            }
+        }
+    }
+}
 function processQueries() : void {
     console.log("Enter a command from the following:\n:" +
         "1. List All\n" +
         "2. List [Account])\n" +
         "3. Import File [filename] (either in JSON or in CSV format)"
     );
-    let readlineSync = require('readline-sync');
-
-    while (true) {
-        try {
-            let currentCommand : string = readlineSync.question("New command? ");
-            console.log(currentCommand);
-            if (currentCommand === "List All") {
-                accounts.forEach(function(account : Account) : void {
-                    console.log(account);
-                });
-            } else {
-                if (currentCommand.split(" ")[0] !== "List") {
-                    if (currentCommand.split(" ").slice(0, 2).join(" ") === "Import File") {
-                        let filePath = currentCommand.split(" ")[2];
-                        if (filePath.endsWith(".json")) {
-                            parseJSON(filePath);
-                        } else if (filePath.endsWith(".csv")) {
-                            parseCSV(filePath);
-                        } else {
-                            throw new Error("Invalid file format.");
-                        }
-                    } else {
-                        throw new Error("Invalid command!");
-                    }
-                } else {
-                    let accountName : string = currentCommand.split(" ").slice(1).join(" ");
-                    if (!accounts.has(accountName)) {
-                        throw new Error("Invalid account name! Please introduce another command.\n");
-                    } else {
-                        payments.filter(function(payment : Payment) : boolean {
-                            return payment.getGiverAcc()?.getPersonName() === accountName || payment.getReceiverAcc()?.getPersonName() === accountName;
-                        }).forEach((function(payment : Payment) : void {
-                            console.log(payment);
-                        }));
-                    }
-                }
-            }
-        } catch (err) {
-            console.log("Error caught: " + err);
-        }
-    }
+    processQuery();
 }
 
 function processPayment(receiverAccountName : string, giverAccountName : string, amount : number, date : moment.Moment, narrative: string) : void {
@@ -136,15 +133,14 @@ function processPayment(receiverAccountName : string, giverAccountName : string,
         amount,
         date,
         narrative));
-
-    console.log(payments);
 }
 function parseJSON(filePath : string) : void {
-    const JSONString = fs.readFileSync(filePath, 'utf-8');
+    const JSONString : string = fs.readFileSync(filePath, 'utf-8');
     const JSONData = JSON.parse(JSONString);
     JSONData.forEach(function (payment : any) : void {
         processPayment(payment["ToAccount"], payment["FromAccount"], payment["Amount"], moment(payment["Date"]).utcOffset(payment["Date"]), payment["Narrative"]);
     });
+    console.log(payments);
 }
 function parseCSV(filePath : string) : void {
     const CSVHeaders : string[] = ['Date', 'From', 'To', 'Narrative', 'Amount'];
@@ -159,7 +155,19 @@ function parseCSV(filePath : string) : void {
         })
         .on("end", () : void => {
             console.log("Finished reading csv");
-        });
+            console.log(accounts);
+        })
+}
+/*
+parseCSV("Transactions2014.csv");
+*/
+processQueries();
+
+
+/*
+
+while (true) {
 }
 
-parseJSON("./Transactions2013.json");
+or variations don't work.. because of async.
+ */
