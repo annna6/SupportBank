@@ -2,7 +2,17 @@ import moment from "moment";
 import * as fs from "fs";
 import { parse } from 'csv-parse';
 import log4js from "log4js";
+import {stringifier} from "csv";
 
+const logger = log4js.getLogger("index.ts");
+log4js.configure({
+    appenders: {
+        file: { type: 'fileSync', filename: 'logs/debug.log' }
+    },
+    categories: {
+        default: { appenders: ['file'], level: 'debug'}
+    }
+});
 
 class Account {
     readonly personName : string;
@@ -49,69 +59,107 @@ class Payment {
     }
 }
 
-function processQueries(accounts : Map<string, Account>, payments : Payment[]) : void {
-    console.log("Enter command. (List All OR List [Account])");
+let payments : Payment[] = [];
+let accounts : Map<string, Account> = new Map<string, Account>;
+
+function processQueries() : void {
+    console.log("Enter a command from the following:\n:" +
+        "1. List All\n" +
+        "2. List [Account])\n" +
+        "3. Import File [filename] (either in JSON or in CSV format)"
+    );
     let readlineSync = require('readline-sync');
 
     while (true) {
-        let currentCommand : string = readlineSync.question("New command? ");
-        console.log(currentCommand);
-        if (currentCommand === "List All") {
-            accounts.forEach(function(account : Account) : void {
-                console.log(account);
-            });
-        } else {
-            if (currentCommand.split(" ")[0] !== "List") {
-                console.log("Invalid Command!");
-                continue;
+        try {
+            let currentCommand : string = readlineSync.question("New command? ");
+            console.log(currentCommand);
+            if (currentCommand === "List All") {
+                accounts.forEach(function(account : Account) : void {
+                    console.log(account);
+                });
             } else {
-                let accountName : string = currentCommand.split(" ").slice(1).join(" ");
-                if (!accounts.has(accountName)) {
-                    console.log("Invalid account name! Please introduce another command.\n");
+                if (currentCommand.split(" ")[0] !== "List") {
+                    if (currentCommand.split(" ").slice(0, 2).join(" ") === "Import File") {
+                        let filePath = currentCommand.split(" ")[2];
+                        if (filePath.endsWith(".json")) {
+                            parseJSON(filePath);
+                        } else if (filePath.endsWith(".csv")) {
+                            parseCSV(filePath);
+                        } else {
+                            throw new Error("Invalid file format.");
+                        }
+                    } else {
+                        throw new Error("Invalid command!");
+                    }
                 } else {
-                    payments.filter(function(payment : Payment) : boolean {
-                        return payment.getGiverAcc()?.getPersonName() === accountName || payment.getReceiverAcc()?.getPersonName() === accountName;
-                    }).forEach((function(payment : Payment) : void {
-                        console.log(payment);
-                    }));
+                    let accountName : string = currentCommand.split(" ").slice(1).join(" ");
+                    if (!accounts.has(accountName)) {
+                        throw new Error("Invalid account name! Please introduce another command.\n");
+                    } else {
+                        payments.filter(function(payment : Payment) : boolean {
+                            return payment.getGiverAcc()?.getPersonName() === accountName || payment.getReceiverAcc()?.getPersonName() === accountName;
+                        }).forEach((function(payment : Payment) : void {
+                            console.log(payment);
+                        }));
+                    }
                 }
             }
+        } catch (err) {
+            console.log("Error caught: " + err);
         }
     }
 }
-const CSVHeaders : string[] = ['Date', 'From', 'To', 'Narrative', 'Amount'];
-let parsedPayments : Payment[] = [];
-let accounts : Map<string, Account> = new Map<string, Account>;
 
-fs.createReadStream("./Transactions2014.csv")
-    .pipe(parse({ delimiter: ",", columns: CSVHeaders, fromLine: 2}))
-    .on("data", function(row : any): void {
-        let receiverAccountName : string = row[CSVHeaders[1]];
-        if (!accounts.has(receiverAccountName)) {
-            accounts.set(receiverAccountName, new Account(receiverAccountName));
-        }
-        let giverAccountName : string = row[CSVHeaders[2]];
-        if (!accounts.has(giverAccountName)) {
-            accounts.set(giverAccountName, new Account(giverAccountName));
-        }
+function processPayment(receiverAccountName : string, giverAccountName : string, amount : number, date : moment.Moment, narrative: string) : void {
+    if (!accounts.has(receiverAccountName)) {
+        accounts.set(receiverAccountName, new Account(receiverAccountName));
+    }
+    if (!accounts.has(giverAccountName)) {
+        accounts.set(giverAccountName, new Account(giverAccountName));
+    }
 
-        let amount : number = Number(row[CSVHeaders[4]]);
-        accounts.get(receiverAccountName)?.addMoneyToReceive(amount);
-        accounts.get(giverAccountName)?.addMoneyToGive(amount);
+    if (isNaN(amount)) {
+        logger.error("Invalid number: " + amount);
+        amount = 0;
+    }
+    accounts.get(receiverAccountName)?.addMoneyToReceive(amount);
+    accounts.get(giverAccountName)?.addMoneyToGive(amount);
 
-        parsedPayments.push(new Payment(
-            accounts.get(receiverAccountName),
-            accounts.get(giverAccountName),
-            Number(row[CSVHeaders[4]]),
-            moment(row[CSVHeaders[0]], 'DD/MM/YYYY'),
-            row[CSVHeaders[3]]));
-    })
-    .on("end", () : void => {
-        processQueries(accounts, parsedPayments);
+    if (!date.isValid()) {
+        logger.error("Invalid date format!");
+    }
+
+    payments.push(new Payment(
+        accounts.get(receiverAccountName),
+        accounts.get(giverAccountName),
+        amount,
+        date,
+        narrative));
+
+    console.log(payments);
+}
+function parseJSON(filePath : string) : void {
+    const JSONString = fs.readFileSync(filePath, 'utf-8');
+    const JSONData = JSON.parse(JSONString);
+    JSONData.forEach(function (payment : any) : void {
+        processPayment(payment["ToAccount"], payment["FromAccount"], payment["Amount"], moment(payment["Date"]).utcOffset(payment["Date"]), payment["Narrative"]);
     });
+}
+function parseCSV(filePath : string) : void {
+    const CSVHeaders : string[] = ['Date', 'From', 'To', 'Narrative', 'Amount'];
 
+    fs.createReadStream(filePath)
+        .pipe(parse({ delimiter: ",", columns: CSVHeaders, fromLine: 2}))
+        .on("data", function(row : any): void {
+            processPayment(row['To'], row['From'], Number(row['Amount']), moment(row['Date'], "DD/MM/YYYY"), row['Narrative']);
+        })
+        .on("error", (err : Error): void => {
+            console.log("Error: " + err + "------\n");
+        })
+        .on("end", () : void => {
+            console.log("Finished reading csv");
+        });
+}
 
-
-
-
-
+parseJSON("./Transactions2013.json");
