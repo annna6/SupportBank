@@ -2,7 +2,8 @@ import moment from "moment";
 import * as fs from "fs";
 import { parse } from 'csv-parse/sync';
 import log4js from "log4js";
-import * as readline from "readline";
+import { XMLParser } from 'fast-xml-parser';
+import {readFile} from "fs";
 
 const logger : log4js.Logger = log4js.getLogger("index.ts");
 log4js.configure({
@@ -77,8 +78,9 @@ function processQuery() : void {
                 if (filePath.endsWith(".json")) {
                     parseJSON(filePath);
                 } else if (filePath.endsWith(".csv")) {
-                    console.log(filePath);
                     parseCSV(filePath);
+                } else if (filePath.endsWith(".xml")) {
+                    parseXML(filePath);
                 } else {
                     throw new Error("Invalid file format.");
                 }
@@ -103,7 +105,7 @@ function processQueries() : void {
     console.log("Enter a command from the following:\n:" +
         "1. List All\n" +
         "2. List [Account])\n" +
-        "3. Import File [filename] (either in JSON or in CSV format)"
+        "3. Import File [filename] (either in JSON, XML or in CSV format)"
     );
     while (true) {
         processQuery();
@@ -144,7 +146,7 @@ function parseJSON(filePath : string) : void {
     });
     console.log(payments);
 }
-function parseCSV(filePath : string)  {
+function parseCSV(filePath : string) : void {
     const CSVHeaders : string[] = ['Date', 'From', 'To', 'Narrative', 'Amount'];
 
     const CSVString : string = fs.readFileSync(filePath, 'utf-8');
@@ -152,7 +154,29 @@ function parseCSV(filePath : string)  {
     CSVData.forEach(function (payment : any) : void {
         processPayment(payment['To'], payment['From'], Number(payment['Amount']), moment(payment['Date'], "DD/MM/YYYY"), payment['Narrative']);
     });
+}
 
+interface SupportTransactionXML {
+    date : moment.Moment;
+    description : string;
+    value : number;
+    from : string;
+    to : string;
+}
+function parseXML(filePath : string) : void {
+    const XMLFile : Buffer = fs.readFileSync(filePath);
+
+    const parserOptions : {ignoreAttributes : boolean} = {
+        ignoreAttributes : false
+    };
+
+    const Parser : XMLParser = new XMLParser(parserOptions);
+    const JSONContent = Parser.parse(XMLFile);
+    const PaymentsJSON : any[] = Array.from(JSONContent['TransactionList']['SupportTransaction']);
+    PaymentsJSON.forEach((payment : any): void => {
+        processPayment(payment["Parties"]["To"], payment["Parties"]["From"], Number(payment["Value"]), moment(payment["@_Date"]), payment["Description"]);
+    });
+    console.log(payments);
 }
 
 processQueries();
