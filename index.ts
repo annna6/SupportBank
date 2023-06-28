@@ -154,16 +154,5 @@ function parseCSV(filePath : string)  {
     });
 
 }
-/*
-parseCSV("Transactions2014.csv");
-*/
+
 processQueries();
-
-
-/*
-
-while (true) {
-}
-
-or variations don't work.. because of async.
- */
