@@ -1,10 +1,10 @@
 import moment from "moment";
 import * as fs from "fs";
-import { parse } from 'csv-parse';
+import { parse } from 'csv-parse/sync';
 import log4js from "log4js";
 import * as readline from "readline";
 
-const logger = log4js.getLogger("index.ts");
+const logger : log4js.Logger = log4js.getLogger("index.ts");
 log4js.configure({
     appenders: {
         file: { type: 'fileSync', filename: 'logs/debug.log' }
@@ -73,7 +73,7 @@ function processQuery() : void {
     } else {
         if (currentCommand.split(" ")[0] !== "List") {
             if (currentCommand.split(" ").slice(0, 2).join(" ") === "Import File") {
-                let filePath = currentCommand.split(" ")[2];
+                let filePath : string = currentCommand.split(" ")[2];
                 if (filePath.endsWith(".json")) {
                     parseJSON(filePath);
                 } else if (filePath.endsWith(".csv")) {
@@ -105,7 +105,9 @@ function processQueries() : void {
         "2. List [Account])\n" +
         "3. Import File [filename] (either in JSON or in CSV format)"
     );
-    processQuery();
+    while (true) {
+        processQuery();
+    }
 }
 
 function processPayment(receiverAccountName : string, giverAccountName : string, amount : number, date : moment.Moment, narrative: string) : void {
@@ -142,21 +144,15 @@ function parseJSON(filePath : string) : void {
     });
     console.log(payments);
 }
-function parseCSV(filePath : string) : void {
+function parseCSV(filePath : string)  {
     const CSVHeaders : string[] = ['Date', 'From', 'To', 'Narrative', 'Amount'];
 
-    fs.createReadStream(filePath)
-        .pipe(parse({ delimiter: ",", columns: CSVHeaders, fromLine: 2}))
-        .on("data", function(row : any): void {
-            processPayment(row['To'], row['From'], Number(row['Amount']), moment(row['Date'], "DD/MM/YYYY"), row['Narrative']);
-        })
-        .on("error", (err : Error): void => {
-            console.log("Error: " + err + "------\n");
-        })
-        .on("end", () : void => {
-            console.log("Finished reading csv");
-            console.log(accounts);
-        })
+    const CSVString : string = fs.readFileSync(filePath, 'utf-8');
+    const CSVData = parse(CSVString, { delimiter: ",", columns: CSVHeaders, fromLine: 2});
+    CSVData.forEach(function (payment : any) : void {
+        processPayment(payment['To'], payment['From'], Number(payment['Amount']), moment(payment['Date'], "DD/MM/YYYY"), payment['Narrative']);
+    });
+
 }
 /*
 parseCSV("Transactions2014.csv");
