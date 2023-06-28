@@ -3,7 +3,6 @@ import * as fs from "fs";
 import { parse } from 'csv-parse/sync';
 import log4js from "log4js";
 import { XMLParser } from 'fast-xml-parser';
-import {readFile} from "fs";
 
 const logger : log4js.Logger = log4js.getLogger("index.ts");
 log4js.configure({
@@ -156,13 +155,6 @@ function parseCSV(filePath : string) : void {
     });
 }
 
-interface SupportTransactionXML {
-    date : moment.Moment;
-    description : string;
-    value : number;
-    from : string;
-    to : string;
-}
 function parseXML(filePath : string) : void {
     const XMLFile : Buffer = fs.readFileSync(filePath);
 
